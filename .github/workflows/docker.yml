@@ -75,14 +75,20 @@ jobs:
 
       - name: Job summary
         if: ${{ github.event.pull_request.head.repo.fork != true }}
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          REF_NAME: ${{ github.ref_name }}
+          GIT_SHA: ${{ github.sha }}
         run: |
           {
             echo "## Docker image"
             echo ""
-            echo "Published \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}\`"
+            echo "Published \`${REGISTRY}/${IMAGE_NAME}@${DIGEST}\`"
             echo ""
-            echo "- Source: \`${{ github.ref_name }}\` @ \`${{ github.sha }}\`"
-            for tag in ${{ steps.meta.outputs.tags }}; do
+            echo "- Source: \`${REF_NAME}\` @ \`${GIT_SHA}\`"
+            # DOCKER_METADATA_OUTPUT_TAGS is exported by docker/metadata-action and
+            # word-splits safely, unlike the multi-line step output.
+            for tag in $DOCKER_METADATA_OUTPUT_TAGS; do
               echo "- Tag: \`$tag\`"
             done
           } >> "$GITHUB_STEP_SUMMARY"
