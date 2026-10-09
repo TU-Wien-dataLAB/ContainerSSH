@@ -141,6 +141,16 @@ loop:
 			authenticatedMeta.Merge(authResponse.ConnectionAuthenticatedMetadata)
 			client.logAuthResponse(logger, method, authResponse, lastLabels, authenticatedMeta.RemoteAddress.IP)
 
+			if !authResponse.Success && authResponse.Message != "" {
+				// The webhook made a negative decision and supplied a user-facing
+				// message. This is a terminal failure carrying that message, not a
+				// retryable backend error.
+				return &webhookClientContext{
+					authenticatedMeta,
+					false,
+					client.userFacingDenialError(authType, authResponse.Message),
+				}
+			}
 			return &webhookClientContext{
 				authenticatedMeta,
 				authResponse.Success,
@@ -168,6 +178,19 @@ func (client *webhookClient) logAttempt(logger log.Logger, method string, lastLa
 		),
 	)
 	client.backendRequestsMetric.Increment(lastLabels...)
+}
+
+// userFacingDenialError creates an error for a webhook denial that supplied a
+// user-facing message. The error chains to an auth.UserFacingDenial carrying the
+// message so downstream layers can deliver it to the connecting user.
+func (client *webhookClient) userFacingDenialError(authType string, userMessage string) error {
+	return message.WrapUser(
+		&auth.UserFacingDenial{Message: userMessage},
+		message.EAuthFailed,
+		userMessage,
+		"Auth webhook denied %s and supplied a user-facing message",
+		authType,
+	)
 }
 
 func (client *webhookClient) logAndReturnPermanentFailure(
@@ -310,6 +333,17 @@ loop:
 			authenticatedMeta := meta.Authenticated("")
 			authenticatedMeta.Merge(authResponse.ConnectionAuthenticatedMetadata)
 			client.logAuthzResponse(authenticatedMeta, logger, authResponse, lastLabels)
+
+			if !authResponse.Success && authResponse.Message != "" {
+				// The webhook made a negative decision and supplied a user-facing
+				// message. This is a terminal failure carrying that message, not a
+				// retryable backend error.
+				return &webhookClientContext{
+					authenticatedMeta,
+					false,
+					client.userFacingDenialError("authorization", authResponse.Message),
+				}
+			}
 			return &webhookClientContext{
 				authenticatedMeta,
 				authResponse.Success,

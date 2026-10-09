@@ -46,6 +46,15 @@ type ResponseBody struct {
 	// required: true
 	// in: body
 	Success bool `json:"success"`
+
+	// Message is an optional user-facing message describing a negative
+	// decision (success = false). It is delivered to the connecting client
+	// during authentication (e.g. as an SSH user authentication banner as
+	// described in RFC 4252, section 5.4) and must therefore be safe to be
+	// displayed to an unauthenticated user. A message on a successful response
+	// is not a denial and is not delivered as a banner. Messages on
+	// infrastructure failures (non-200 responses) are never delivered.
+	Message string `json:"message,omitempty"`
 }
 
 // Response is the full HTTP authentication response.
