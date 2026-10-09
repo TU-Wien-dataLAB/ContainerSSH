@@ -1,4 +1,11 @@
+Dockerfile
+ssh_host_rsa_key
+config.yaml
+docker-compose.yaml
+
+build/
+dist/
+cover.out
+
 .git
 .github
-build
-dist
