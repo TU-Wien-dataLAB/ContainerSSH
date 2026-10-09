@@ -14,6 +14,7 @@ import (
 	"go.containerssh.io/containerssh/internal/auth"
 	"go.containerssh.io/containerssh/internal/geoip/dummy"
 	"go.containerssh.io/containerssh/internal/metrics"
+	"go.containerssh.io/containerssh/internal/test"
 	"go.containerssh.io/containerssh/log"
 	"go.containerssh.io/containerssh/metadata"
 )
@@ -200,5 +201,44 @@ func TestWebhookNon200DoesNotBecomeUserFacingDenial(t *testing.T) {
 		t,
 		auth2.IsUserFacingDenial(authContext.Error()),
 		"an infrastructure failure must not become a user-facing denial",
+	)
+}
+
+// TestWebhookTransportErrorDoesNotBecomeUserFacingDenial verifies that a
+// webhook outage (connection refused) keeps its fail-closed retry/timeout
+// behavior and never turns into a user-facing denial message.
+func TestWebhookTransportErrorDoesNotBecomeUserFacingDenial(t *testing.T) {
+	// Point the client at a closed port so the connection is refused.
+	closedPort := test.GetNextPort(t, "closed auth server")
+
+	client, err := auth.NewWebhookClient(
+		auth.AuthenticationTypeAll,
+		config.AuthWebhookClientConfig{
+			HTTPClientConfiguration: config.HTTPClientConfiguration{
+				URL:     fmt.Sprintf("http://127.0.0.1:%d", closedPort),
+				Timeout: 2 * time.Second,
+			},
+			AuthTimeout: 1 * time.Second,
+		},
+		log.NewTestLogger(t),
+		metrics.New(dummy.New()),
+	)
+	assert.NoError(t, err)
+
+	authContext := client.PubKey(
+		metadata.NewTestAuthenticatingMetadata("foo"),
+		auth2.PublicKey{PublicKey: "ssh-rsa asdf"},
+	)
+
+	assert.False(t, authContext.Success())
+	assert.Error(
+		t,
+		authContext.Error(),
+		"a webhook outage must remain a fail-closed backend error",
+	)
+	assert.False(
+		t,
+		auth2.IsUserFacingDenial(authContext.Error()),
+		"a webhook outage must not become a user-facing denial",
 	)
 }
