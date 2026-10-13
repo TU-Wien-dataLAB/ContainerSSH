@@ -1,4 +1,4 @@
-package kubernetes
+package kubernetes //nolint:testpackage // Regression exercises the unexported execution and queue lifecycle.
 
 import (
 	"context"
@@ -171,7 +171,7 @@ func TestResizeQueueShutdown(t *testing.T) {
 		writerQueue := &pushSizeQueueImpl{resizeChan: make(chan remotecommand.TerminalSize)}
 		writeResult := make(chan resizePushResult, 1)
 		go func() {
-			err, panicValue := captureResizePush(writerQueue, context.Background())
+			panicValue, err := captureResizePush(writerQueue, context.Background())
 			writeResult <- resizePushResult{err: err, panicValue: panicValue}
 		}()
 		select {
@@ -189,14 +189,14 @@ func TestResizeQueueShutdown(t *testing.T) {
 			t.Fatal("Stop did not release a blocked Push")
 		}
 
-		futureErr, futurePanic := captureResizePush(writerQueue, context.Background())
+		futurePanic, futureErr := captureResizePush(writerQueue, context.Background())
 		require.Nil(t, futurePanic, "Push after Stop must not panic")
 		require.Error(t, futureErr, "Push after Stop must return an error")
 
 		cancelledQueue := &pushSizeQueueImpl{resizeChan: make(chan remotecommand.TerminalSize)}
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		cancelledErr, cancelledPanic := captureResizePush(cancelledQueue, ctx)
+		cancelledPanic, cancelledErr := captureResizePush(cancelledQueue, ctx)
 		require.Nil(t, cancelledPanic)
 		require.ErrorIs(t, cancelledErr, context.Canceled, "caller cancellation must be preserved")
 		cancelledQueue.Stop()
@@ -219,10 +219,10 @@ type resizePushResult struct {
 	panicValue interface{}
 }
 
-func captureResizePush(queue pushSizeQueue, ctx context.Context) (err error, panicValue interface{}) {
+func captureResizePush(queue pushSizeQueue, ctx context.Context) (panicValue interface{}, err error) {
 	defer func() { panicValue = recover() }()
 	err = queue.Push(ctx, remotecommand.TerminalSize{Width: 80, Height: 24})
-	return err, panicValue
+	return panicValue, err
 }
 
 type resizeExecutor struct {
