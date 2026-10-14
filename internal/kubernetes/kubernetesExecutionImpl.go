@@ -214,7 +214,7 @@ type stdoutProxyWriter struct {
 	pidRead    bool
 	lock       *sync.Mutex
 	buf        *bytes.Buffer
-	tty        bool
+	waitEcho   bool
 }
 
 func (s *stdoutProxyWriter) Write(p []byte) (n int, err error) {
@@ -224,11 +224,13 @@ func (s *stdoutProxyWriter) Write(p []byte) (n int, err error) {
 		return s.backend.Write(p)
 	}
 	// Read the pid. See https://github.com/containerssh/agent for details.
-	// We need 6 bytes because the first 2 bytes will be \r\n from the --wait function injected in the reader above.
+	// Session-mode PTYs also need the two echoed --wait bytes. Connection
+	// and persistent execs do not use --wait: their four-byte PID must unblock
+	// initial resizing before a terminal-dependent application emits output.
 	if n, err := s.buf.Write(p); err != nil {
 		return n, err
 	}
-	if (s.tty && s.buf.Len() >= 6) || (!s.tty && s.buf.Len() >= 4) {
+	if (s.waitEcho && s.buf.Len() >= 6) || (!s.waitEcho && s.buf.Len() >= 4) {
 		bufferBytes := s.buf.Bytes()
 		s.pidRead = true
 		s.buf = nil
@@ -264,7 +266,7 @@ func (k *kubernetesExecutionImpl) run(
 			}
 		}
 		stdout = &stdoutProxyWriter{
-			tty:        k.tty,
+			waitEcho:   k.tty && k.pod.config.Pod.Mode == config.KubernetesExecutionModeSession,
 			backend:    stdout,
 			lock:       &sync.Mutex{},
 			pidChannel: pidChannel,

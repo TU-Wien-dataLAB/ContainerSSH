@@ -3,10 +3,10 @@ package security
 import (
 	"context"
 
-    config2 "go.containerssh.io/containerssh/config"
-    "go.containerssh.io/containerssh/internal/sshserver"
-    "go.containerssh.io/containerssh/log"
-    "go.containerssh.io/containerssh/message"
+	config2 "go.containerssh.io/containerssh/config"
+	"go.containerssh.io/containerssh/internal/sshserver"
+	"go.containerssh.io/containerssh/log"
+	"go.containerssh.io/containerssh/message"
 )
 
 type sessionHandler struct {
@@ -262,7 +262,7 @@ func (s *sessionHandler) OnSubsystem(
 }
 
 func (s *sessionHandler) OnSignal(requestID uint64, signal string) error {
-	mode := s.getPolicy(s.config.Shell.Mode)
+	mode := s.getPolicy(s.config.Signal.Mode)
 	switch mode {
 	case config2.ExecutionPolicyDisable:
 		err := message.UserMessage(
