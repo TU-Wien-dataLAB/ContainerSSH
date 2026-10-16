@@ -1,7 +1,6 @@
 package test
 
 import (
-	"embed"
 	"fmt"
 	"testing"
 	"time"
@@ -11,9 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
-
-//go:embed minio
-var minioBuildRoot embed.FS
 
 // s3Lock is used to start a maximum of 5 Minio instances for testing.
 var s3Lock = make(chan struct{}, 5)
@@ -38,10 +34,9 @@ func S3(t *testing.T) S3Helper {
 	}
 	t.Log("Starting Minio in a container...")
 	m := &minio{
-		cnt: containerFromBuild(
+		cnt: containerFromPull(
 			t,
-			"containerssh-test-minio",
-			dockerBuildRootFiles(minioBuildRoot, "minio"),
+			"docker.io/minio/minio",
 			[]string{"server", "/data", "--console-address", ":9001"},
 			env,
 			map[string]string{
