@@ -184,7 +184,7 @@ for {
 
 ## Development
 
-In order to successfully run the tests for this library you will need a working [Docker](https://www.docker.com/) or [Podman](https://podman.io/) setup to run `minio/minio` for the S3 upload.
+In order to successfully run the tests for this library you will need a working [Docker](https://www.docker.com/) or Docker-compatible [Podman](https://podman.io/) API socket. The [S3 test helper](../test/README.md#starting-an-s3-service) builds MinIO from pinned official source for the S3 upload tests; allow several minutes for the first build.
 
 ### Manually encoding messages
 

@@ -5,6 +5,8 @@ This library helps with bringing up services for testing, such as S3, oAuth, etc
 
 ## Starting an S3 service
 
+Allow several minutes for the first run: the helper builds MinIO from a pinned official source commit using [minio/Dockerfile](minio/Dockerfile). Docker caches the build for subsequent runs. The build requires access to Docker Hub and the Go module proxy.
+
 To start the S3 service and then use it with the AWS client as follows:
 
 ```go
