@@ -226,6 +226,74 @@ func TestPubKeyDenialWithMessageReachesClientAsBanner(t *testing.T) {
 	)
 }
 
+// TestAuthzDenialWithMessageReachesClientAsBanner is the motivating scenario
+// for readable denials: the user authenticates successfully by public key, the
+// authorization check denies with an explicit message, and the SSH client sees
+// exactly that text as a banner immediately before the connection fails.
+func TestAuthzDenialWithMessageReachesClientAsBanner(t *testing.T) {
+	denialMessage := "unknown pod template 'unknown' — use a configured template username"
+	fixture := startAuthWebhookFixture(t)
+	fixture.setResponse("pubkey", `{"success":true}`)
+	fixture.setResponse(
+		"authz",
+		fmt.Sprintf(`{"success":false,"message":%q}`, denialMessage),
+	)
+
+	start := time.Now()
+	sshServerConfig, backend := startFixtureSSHServer(t, fixture)
+	result := connectWithPublicKey(t, sshServerConfig, "unknown")
+	elapsed := time.Since(start)
+
+	assert.Error(
+		t,
+		result.dialError,
+		"a message-bearing authorization denial must still fail authentication",
+	)
+	assert.Equal(
+		t,
+		[]string{denialMessage},
+		result.banners,
+		"the client must see the exact authorization denial message as a pre-failure banner",
+	)
+	assert.Less(
+		t,
+		elapsed,
+		5*time.Second,
+		"a healthy permanent authorization denial must complete promptly",
+	)
+	assert.Equal(
+		t,
+		int32(0),
+		atomic.LoadInt32(&backend.handshakeSuccesses),
+		"an authorization denial must not initialize a backend session",
+	)
+}
+
+// TestAuthzDenialWithoutMessageHasNoBanner verifies that message-less
+// authorization denials behave exactly as before: authentication fails without
+// a banner.
+func TestAuthzDenialWithoutMessageHasNoBanner(t *testing.T) {
+	fixture := startAuthWebhookFixture(t)
+	fixture.setResponse("pubkey", `{"success":true}`)
+	fixture.setResponse("authz", `{"success":false}`)
+
+	sshServerConfig, backend := startFixtureSSHServer(t, fixture)
+	result := connectWithPublicKey(t, sshServerConfig, "foo")
+
+	assert.Error(t, result.dialError)
+	assert.Empty(
+		t,
+		result.banners,
+		"a message-less authorization denial must not acquire a banner",
+	)
+	assert.Equal(
+		t,
+		int32(0),
+		atomic.LoadInt32(&backend.handshakeSuccesses),
+		"an authorization denial must not initialize a backend session",
+	)
+}
+
 // TestPubKeyDenialWithoutMessageHasNoBanner verifies that message-less denials
 // behave exactly as before: authentication fails without a banner.
 func TestPubKeyDenialWithoutMessageHasNoBanner(t *testing.T) {
@@ -305,13 +373,11 @@ func TestWebhookOutageDoesNotProduceBanner(t *testing.T) {
 	)
 }
 
-// TestOpenSSHClientSeesDenialBanner verifies, with the actual OpenSSH client in
-// noninteractive use, that a message-bearing denial is printed as the banner and
-// authentication still fails. The test is skipped when no OpenSSH client is
-// available.
-func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
-	sshBinary, err := exec.LookPath("ssh")
-	if err != nil {
+// generateOpenSSHTestKey generates a fresh ed25519 key for the OpenSSH client
+// tests and returns its path. The test is skipped when no OpenSSH client
+// tooling is available.
+func generateOpenSSHTestKey(t *testing.T) string {
+	if _, err := exec.LookPath("ssh"); err != nil {
 		t.Skip("OpenSSH client not available, skipping OpenSSH banner verification")
 	}
 	sshKeyGen, err := exec.LookPath("ssh-keygen")
@@ -323,23 +389,24 @@ func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
 	keyFile := tempDir + "/testkey"
 	if out, err := exec.Command(sshKeyGen, "-q", "-t", "ed25519", "-N", "", "-f", keyFile).CombinedOutput(); err != nil {
 		assert.FailNow(t, "failed to generate test key", string(out))
-		return
+		return ""
 	}
+	return keyFile
+}
 
-	denialMessage := "unknown pod template 'unknown' — use a configured template username"
-	fixture := startAuthWebhookFixture(t)
-	fixture.setResponse(
-		"pubkey",
-		fmt.Sprintf(`{"success":false,"message":%q}`, denialMessage),
-	)
-	fixture.setResponse("authz", `{"success":true}`)
-
-	sshServerConfig, backend := startFixtureSSHServer(t, fixture)
+// runOpenSSHClient connects with the actual OpenSSH client in noninteractive
+// use and returns the captured stderr and the command error.
+func runOpenSSHClient(
+	t *testing.T,
+	sshServerConfig config.SSHConfig,
+	username string,
+	keyFile string,
+) (string, error) {
 	listens := strings.Split(sshServerConfig.Listen, ":")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sshBinary,
+	cmd := exec.CommandContext(ctx, "ssh",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=10",
 		"-o", "StrictHostKeyChecking=no",
@@ -350,11 +417,31 @@ func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
 		"-o", "KbdInteractiveAuthentication=no",
 		"-i", keyFile,
 		"-p", listens[len(listens)-1],
-		"unknown@127.0.0.1", "true",
+		username+"@127.0.0.1", "true",
 	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
+	return stderr.String(), runErr
+}
+
+// TestOpenSSHClientSeesDenialBanner verifies, with the actual OpenSSH client in
+// noninteractive use, that a message-bearing denial is printed as the banner and
+// authentication still fails. The test is skipped when no OpenSSH client is
+// available.
+func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
+	keyFile := generateOpenSSHTestKey(t)
+
+	denialMessage := "unknown pod template 'unknown' — use a configured template username"
+	fixture := startAuthWebhookFixture(t)
+	fixture.setResponse(
+		"pubkey",
+		fmt.Sprintf(`{"success":false,"message":%q}`, denialMessage),
+	)
+	fixture.setResponse("authz", `{"success":true}`)
+
+	sshServerConfig, backend := startFixtureSSHServer(t, fixture)
+	stderr, runErr := runOpenSSHClient(t, sshServerConfig, "unknown", keyFile)
 
 	assert.Error(
 		t,
@@ -363,7 +450,7 @@ func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
 	)
 	assert.Contains(
 		t,
-		stderr.String(),
+		stderr,
 		denialMessage,
 		"the OpenSSH client must print the denial message as the banner",
 	)
@@ -372,5 +459,52 @@ func TestOpenSSHClientSeesDenialBanner(t *testing.T) {
 		int32(0),
 		atomic.LoadInt32(&backend.handshakeSuccesses),
 		"a denial must not initialize a backend session",
+	)
+}
+
+// TestOpenSSHClientSeesAuthzDenialBanner verifies, with the actual OpenSSH
+// client in noninteractive use, the motivating scenario for readable denials:
+// the public-key authentication succeeds, the authorization check denies with
+// an explicit message, and the OpenSSH client prints exactly that text as the
+// banner while the connection fails. The test is skipped when no OpenSSH
+// client is available.
+func TestOpenSSHClientSeesAuthzDenialBanner(t *testing.T) {
+	keyFile := generateOpenSSHTestKey(t)
+
+	denialMessage := "unknown pod template 'unknown' — use a configured template username"
+	fixture := startAuthWebhookFixture(t)
+	fixture.setResponse("pubkey", `{"success":true}`)
+	fixture.setResponse(
+		"authz",
+		fmt.Sprintf(`{"success":false,"message":%q}`, denialMessage),
+	)
+
+	start := time.Now()
+	sshServerConfig, backend := startFixtureSSHServer(t, fixture)
+	stderr, runErr := runOpenSSHClient(t, sshServerConfig, "unknown", keyFile)
+	elapsed := time.Since(start)
+
+	assert.Error(
+		t,
+		runErr,
+		"the OpenSSH client must still fail the connection on an authorization denial",
+	)
+	assert.Contains(
+		t,
+		stderr,
+		denialMessage,
+		"the OpenSSH client must print the authorization denial message as the banner",
+	)
+	assert.Less(
+		t,
+		elapsed,
+		15*time.Second,
+		"a healthy permanent authorization denial must complete promptly and must not enter retry handling",
+	)
+	assert.Equal(
+		t,
+		int32(0),
+		atomic.LoadInt32(&backend.handshakeSuccesses),
+		"an authorization denial must not initialize a backend session",
 	)
 }

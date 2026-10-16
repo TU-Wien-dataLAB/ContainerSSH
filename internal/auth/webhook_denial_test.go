@@ -163,6 +163,44 @@ func TestAuthzDenialWithMessageIsTerminalAndCarriesMessage(t *testing.T) {
 	}
 }
 
+// TestAuthzDenialWithoutMessageKeepsExistingBehavior verifies that message-less
+// authorization denials behave exactly as before: a plain failure without an
+// error.
+func TestAuthzDenialWithoutMessageKeepsExistingBehavior(t *testing.T) {
+	server := startAuthFixture(t, `{"success":false}`)
+	client := newFixtureWebhookClient(t, server.URL)
+
+	authzContext := client.Authorize(
+		metadata.NewTestAuthenticatingMetadata("foo").Authenticated("foo"),
+	)
+
+	assert.False(t, authzContext.Success())
+	assert.NoError(
+		t,
+		authzContext.Error(),
+		"a message-less denial must not acquire an error",
+	)
+	assert.False(
+		t,
+		auth2.IsUserFacingDenial(authzContext.Error()),
+		"a message-less denial must not carry a user-facing message",
+	)
+}
+
+// TestAuthzSuccessWithMessageSucceeds verifies that a message on a successful
+// authorization response does not become a denial.
+func TestAuthzSuccessWithMessageSucceeds(t *testing.T) {
+	server := startAuthFixture(t, `{"success":true,"message":"welcome"}`)
+	client := newFixtureWebhookClient(t, server.URL)
+
+	authzContext := client.Authorize(
+		metadata.NewTestAuthenticatingMetadata("foo").Authenticated("foo"),
+	)
+
+	assert.True(t, authzContext.Success())
+	assert.NoError(t, authzContext.Error())
+}
+
 // TestWebhookNon200DoesNotBecomeUserFacingDenial verifies that infrastructure
 // failures (non-200 responses) keep their fail-closed behavior and never turn
 // into user-facing denial messages.
