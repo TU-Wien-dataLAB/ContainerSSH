@@ -151,7 +151,17 @@ func (k *kubernetesClientImpl) attemptPodCreate(
 			wg:                    &sync.WaitGroup{},
 			removeLock:            &sync.Mutex{},
 		}
-		return createdPod.wait(ctx)
+		readyPod, waitErr := createdPod.wait(ctx)
+		if waitErr != nil && k.config.Pod.Mode == containerSSHConfig.KubernetesExecutionModeConnection {
+			// Startup may have exhausted ctx. Roll back this creation before the
+			// retry loop loses its identity, with a separate, bounded stop budget.
+			// remove logs failures; preserve the original readiness error.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), k.config.Timeouts.PodStop)
+			_ = createdPod.remove(cleanupCtx)
+			cancel()
+			return nil, waitErr
+		}
+		return readyPod, waitErr
 	}
 	k.backendFailuresMetric.Increment()
 	logger.Debug(
