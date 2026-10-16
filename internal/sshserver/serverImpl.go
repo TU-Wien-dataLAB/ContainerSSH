@@ -882,6 +882,7 @@ func (s *serverImpl) handleSessionChannel(
 		channelMetadata.Connection.ConnectionID,
 		channelMetadata.ChannelID,
 	)
+	handlerChannel = &startOnceSessionChannelHandler{SessionChannelHandler: handlerChannel}
 	s.shutdownHandlers.Register(shutdownHandlerID, handlerChannel)
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
