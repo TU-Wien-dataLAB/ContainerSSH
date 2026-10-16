@@ -207,11 +207,19 @@ func (s *serverImpl) wrapAndLogAuthFailure(
 			Label("username", conn.Username).
 			Label("method", strings.ToLower(authMethod))
 		logger.Info(err)
-	} else {
+		return err
+	}
+	var denial *auth.UserFacingDenial
+	if errors.As(err, &denial) {
+		// The error carries a user-facing message supplied by the
+		// authentication or authorization webhook. Preserve that message instead
+		// of overwriting it with the generic failure text and deliver it to the
+		// client as a user authentication banner (RFC 4252, section 5.4)
+		// immediately before the authentication failure.
 		err = messageCodes.WrapUser(
 			err,
 			messageCodes.ESSHAuthFailed,
-			"Authentication failed.",
+			denial.Message,
 			"%s authentication for user %s failed.",
 			authMethod,
 			conn.Username,
@@ -220,7 +228,23 @@ func (s *serverImpl) wrapAndLogAuthFailure(
 			Label("method", strings.ToLower(authMethod)).
 			Label("reason", err.Error())
 		logger.Info(err)
+		return &ssh.BannerError{
+			Err:     err,
+			Message: denial.Message,
+		}
 	}
+	err = messageCodes.WrapUser(
+		err,
+		messageCodes.ESSHAuthFailed,
+		"Authentication failed.",
+		"%s authentication for user %s failed.",
+		authMethod,
+		conn.Username,
+	).
+		Label("username", conn.Username).
+		Label("method", strings.ToLower(authMethod)).
+		Label("reason", err.Error())
+	logger.Info(err)
 	return err
 }
 

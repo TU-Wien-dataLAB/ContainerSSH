@@ -3,6 +3,7 @@ package authintegration_test
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -142,6 +143,7 @@ func testConnection(t *testing.T, username string, authMethod ssh.AuthMethod, ss
 // region Backend
 type testBackend struct {
 	sshserver.AbstractNetworkConnectionHandler
+	handshakeSuccesses int32
 }
 
 func (t *testBackend) OnUnsupportedGlobalRequest(_ uint64, _ string, _ []byte) {}
@@ -206,9 +208,10 @@ func (t *testBackend) OnHandshakeFailed(_ metadata.ConnectionMetadata, _ error) 
 
 func (t *testBackend) OnHandshakeSuccess(meta metadata.ConnectionAuthenticatedMetadata) (
 	connection sshserver.SSHConnectionHandler,
-	metadata metadata.ConnectionAuthenticatedMetadata,
+	metadataOut metadata.ConnectionAuthenticatedMetadata,
 	failureReason error,
 ) {
+	atomic.AddInt32(&t.handshakeSuccesses, 1)
 	return t, meta, nil
 }
 

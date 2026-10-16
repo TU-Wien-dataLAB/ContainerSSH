@@ -137,7 +137,7 @@ func (h *networkConnectionHandler) OnAuthPassword(
 	authContext := h.passwordAuthenticator.Password(meta, password)
 	h.authContext = authContext
 	if !authContext.Success() {
-		if authContext.Error() != nil {
+		if authContext.Error() != nil && !auth2.IsUserFacingDenial(authContext.Error()) {
 			if h.behavior == BehaviorPassthroughOnUnavailable {
 				return h.backend.OnAuthPassword(meta, password)
 			}
@@ -146,7 +146,7 @@ func (h *networkConnectionHandler) OnAuthPassword(
 		if h.behavior == BehaviorPassthroughOnFailure {
 			return h.backend.OnAuthPassword(meta, password)
 		}
-		return sshserver.AuthResponseFailure, meta.AuthFailed(), nil
+		return sshserver.AuthResponseFailure, meta.AuthFailed(), authContext.Error()
 	}
 	if h.behavior == BehaviorPassthroughOnSuccess {
 		return h.backend.OnAuthPassword(meta, password)
@@ -172,7 +172,7 @@ func (h *networkConnectionHandler) OnAuthPubKey(
 	authContext := h.publicKeyAuthenticator.PubKey(meta, pubKey)
 	h.authContext = authContext
 	if !authContext.Success() {
-		if authContext.Error() != nil {
+		if authContext.Error() != nil && !auth2.IsUserFacingDenial(authContext.Error()) {
 			if h.behavior == BehaviorPassthroughOnUnavailable {
 				return h.backend.OnAuthPubKey(meta, pubKey)
 			}
@@ -235,7 +235,7 @@ func (h *networkConnectionHandler) OnAuthKeyboardInteractive(
 	)
 	h.authContext = authContext
 	if !authContext.Success() {
-		if authContext.Error() != nil {
+		if authContext.Error() != nil && !auth2.IsUserFacingDenial(authContext.Error()) {
 			if h.behavior == BehaviorPassthroughOnUnavailable {
 				return h.backend.OnAuthKeyboardInteractive(meta, challenge)
 			}
