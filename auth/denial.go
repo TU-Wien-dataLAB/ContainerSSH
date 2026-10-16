@@ -1,3 +1,4 @@
+// Package auth defines authentication and authorization webhook protocols and errors.
 package auth
 
 import "errors"
